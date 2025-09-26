@@ -1,0 +1,361 @@
+---
+title: "HW15"
+author: '113078506'
+date: "2025-05-31"
+output:
+  pdf_document: 
+    latex_engine: xelatex
+  html_document: default
+---
+
+- Gen AI Usage: I use Gen AI to refine my grammar, verify my reasoning and adjust to cleaner code.
+- Students who helped: 113078505, 113078502, 113078514, and 113078158 helped with conclusion reasoning.
+
+## Question 1) Create some explanatory models to learn more about charges:
+```{r}
+library(tidyverse)
+# Load dataset
+insurance <- read.csv("insurance.csv")
+insurance <- na.omit(insurance)
+```
+
+### a. Create an OLS regression model and report which factors are significantly related to charges
+
+```{r}
+# Convert categorical variables to factors
+insurance <- insurance |>
+  mutate(sex = factor(sex),
+         smoker = factor(smoker),
+         region = factor(region))
+ols_model <- lm(charges ~ age + sex + bmi + children + smoker + region, data = insurance)
+summary(ols_model)
+```
+
+### b. Create a decision tree (specifically, a regression tree) with default parameters to rpart().
+
+```{r}
+library(rpart)
+tree_model <- rpart(charges ~ age + sex + bmi + children + smoker + region, data = insurance)
+summary(tree_model)
+```
+
+#### i. Plot a visual representation of the tree structure
+
+
+```{r plot-tree, fig.width=10, fig.height=6, fig.align='center'}
+library(rpart.plot)
+rpart.plot(tree_model, type = 2, extra = 101, fallen.leaves = TRUE)
+```
+
+#### ii. How deep is the tree (see nodes with “decisions” – ignore the leaves at the bottom)  
+
+The tree starts with a split on the variable smoker, which forms the first level. From there, the left branch splits further on age, and the right branch splits on bmi, forming the second level of decisions. Since no further splits occur beyond these two levels, the tree has a maximum depth of 2. This means the longest path from the root to any leaf contains two decision nodes, making the tree relatively shallow and easy to interpret.
+
+#### iii. How many leaf groups does it suggest to bin the data into?  
+
+In the tree_model plot, the leaves are from left to right:
+
+- smoker = yes & age < 43 → Leaf: 5399
+- smoker = yes & age ≥ 43 → Leaf: 12,000
+- smoker = no & bmi < 30 → Leaf: 21,000
+- smoker = no & bmi ≥ 30 → Leaf: 42,000
+
+Each leaf represents a bin or group of observations that share the same path of decision rules in the tree, so this tree_model suggest to bin the data into 4 groups.
+
+#### iv. What conditions (combination of decisions) describe each leaf group?  
+
+The conditions of each leaf are from left to right:
+
+- For individuals who smoke and are younger than 43, the predicted insurance charges are approximately $5,399.
+- For individuals who smoke and are 43 or older, the predicted insurance charges are approximately $12,000.
+- For individuals who do not smoke and have a BMI less than 30, the predicted insurance charges are approximately $21,000.
+- For individuals who do not smoke and have a BMI of 30 or higher, the predicted insurance charges are approximately $42,000.
+
+## Question 2) Let’s use LOOCV to see how how our models perform predictively overall
+
+```{r}
+# fold_i_pe
+fold_i_pe <- function(i, k, model ,dataset, outcome) {
+  fold_ids <- cut(1:nrow(dataset), breaks = k, labels = FALSE)
+  test_indices <- which(fold_ids == i)
+  test_set <- dataset[test_indices, ]
+  train_set <- dataset[-test_indices, ]
+  trained_model <- update(model, data = train_set)
+  predictions <- predict(trained_model, test_set)
+  dataset[test_indices, outcome] - predictions
+}
+
+
+# k_fold_rmse
+k_fold_rmse <- function(model, dataset, outcome, k = nrow(dataset)) {
+  shuffled_indices <- sample(1:nrow(dataset))
+  dataset <- dataset[shuffled_indices, ]
+  fold_pred_errors <- sapply(1:k, function(i) {
+    fold_i_pe(i, k, model, dataset, outcome)
+  })
+  pred_errors <- unlist(fold_pred_errors)
+  sqrt(mean(pred_errors^2))
+}
+```
+
+### a. What is the RMSEout for the OLS regression model?
+
+```{r}
+ols_model_rmse_out <- lm(charges ~ ., data = insurance)
+ols_rmse_out <- k_fold_rmse(ols_model_rmse_out, insurance, "charges")
+print(ols_rmse_out)
+```
+
+### b. What is the RMSEout for the decision tree model?
+
+```{r}
+tree_model_rmse_out <- rpart(charges ~ ., data = insurance)
+tree_rmse_out <- k_fold_rmse(tree_model_rmse_out, insurance, "charges")
+print(tree_rmse_out)
+```
+
+Moving onto bagging and boosting, we will only use split-sample testing to save time: partition the data to create training and test sets using an 80:20 split. Use the regression model and decision tree you created earlier for bagging and boosting.
+
+```{r}
+set.seed(123)
+train_index <- sample(nrow(insurance), 0.8 * nrow(insurance))
+train_data <- insurance[train_index, ]
+test_data <- insurance[-train_index, ]
+```
+
+## Question 3) Let’s see if bagging helps our models
+### a. Implement the bagged_learn(…) and bagged_predict(…) functions using the hints in the class notes and help from your classmates on Teams. Feel free to share your code on Teams to get feedback, or ask others for help.
+
+```{r}
+# bagged_learn(…)
+bagged_learn <- function(model_func, dataset, formula, b = 100) {
+  lapply(1:b, function(i) {
+    boot_sample <- dataset[sample(nrow(dataset), replace = TRUE), ]
+    model_func(formula, data = boot_sample)
+  })
+}
+
+# bagged_predict(…)
+bagged_predict <- function(bagged_models, new_data) {
+  predictions <- lapply(bagged_models, predict, newdata = new_data)
+  prediction_matrix <- do.call(cbind, predictions)
+  rowMeans(prediction_matrix)
+}
+
+#rmse
+rmse_oos <- function(actual, preds) {
+  mean((actual - preds)^2) |> sqrt()  # RMSE
+}
+```
+
+### b. What is the RMSEout for the bagged OLS regression?
+
+```{r}
+set.seed(123)
+bagged_learn(lm, train_data, charges ~ age + sex + bmi + children + smoker + region, b = 100) |>
+  bagged_predict(bagged_models = _, new_data = test_data) |>
+  rmse_oos(actual = test_data$charges, preds = _)
+```
+
+### c. What is the RMSEout for the bagged decision tree?
+
+```{r}
+set.seed(123)
+bagged_learn(rpart, train_data, charges ~ age + sex + bmi + children + smoker + region, b = 100) |>
+  bagged_predict(bagged_models = _, new_data = test_data) |>
+  rmse_oos(actual = test_data$charges, preds = _)
+```
+
+## Question 4) Let’s see if boosting helps our models. You can use a learning rate of 0.1 and adjust it if you find a better rate.
+### a. Write boosted_learn(…) and boosted_predict(…) functions using the hints in the class notes and help from your classmates on Teams. Feel free to share your code generously on Teams to get feedback, or ask others for help.
+
+```{r}
+# boosted_learn(…)
+boost_learn <- function(model, dataset, outcome, n = 100, rate = 0.1) {
+  predictors <- dataset[, setdiff(names(dataset), outcome)]  # remove outcome column
+  res <- dataset[[outcome]]  # start with the true y values (residuals = y at first)
+  models <- list()
+
+  for (i in 1:n) {
+    # Fit model on current residuals
+    this_model <- update(model, data = cbind(charges = res, predictors))  # reuse model structure
+    pred <- predict(this_model, newdata = predictors)
+    res <- res - rate * pred  # update residuals
+    models[[i]] <- this_model
+  }
+
+  list(models = models, rate = rate)
+}
+
+# boosted_predict(…)
+boost_predict <- function(boosted_learning, new_data) {
+  boosted_models <- boosted_learning$models
+  rate <- boosted_learning$rate
+
+  predictions <- lapply(boosted_models, function(m) {
+    predict(m, newdata = new_data)
+  })
+
+  pred_frame <- as.data.frame(predictions) |> unname()
+  apply(pred_frame, 1, function(row) sum(rate * row))
+}
+
+
+```
+
+### b. What is the RMSEout for the boosted OLS regression?
+
+```{r}
+based_ols_model <- lm(charges ~ ., data = train_data)
+boost_learn(based_ols_model, train_data, outcome="charges", n=1000) |>
+boost_predict(test_data) |>
+rmse_oos(test_data$charges, preds = _)
+```
+
+### c. What is the RMSEout for the boosted decision tree?
+
+```{r}
+based_tree_model <- rpart(charges ~ ., data = train_data)
+boost_learn(based_tree_model, train_data, outcome="charges", n=1000) |>
+boost_predict(test_data) |>
+rmse_oos(test_data$charges, preds = _)
+```
+
+## Question 5) Let’s engineer the best predictive decision trees. Let’s repeat the bagging and boosting of the decision tree several times to see if we can improve their performance. But this time, split the data 70:15:15 — use 70% as the training set, 15% as the validation set, and use the last 15% as the test set to obtain the final RMSEout.
+
+```{r}
+set.seed(123)
+split_train_index <- sample(nrow(insurance), 0.7 * nrow(insurance))
+split_train_data <- insurance[split_train_index, ]
+to_split_data <- insurance[-split_train_index, ]
+split_validate_index <- sample(nrow(to_split_data), 0.5 * nrow(to_split_data))
+split_validate_data <- to_split_data[split_validate_index, ]
+split_test_data <- to_split_data[-split_validate_index, ]
+```
+
+### a. Repeat the bagging of the decision tree, using a base tree of maximum depth 1, 2, … n, keep training on the 70% training set, while the RMSEout of your 15% validation set keeps dropping; stop when the RMSEout has started increasing again (show prediction error at each depth). When you have identified the best maximum depth from the validation set, report the final RMSEout using the final 15% test set data.
+
+```{r}
+# create another parameter for bagged_learn "max_depth"
+bagged_learn <- function(model_func, dataset, formula, b = 100,  maxdepth = 1) {
+  lapply(1:b, function(i) {
+    boot_sample <- dataset[sample(nrow(dataset), replace = TRUE), ]
+    model_func(formula, data = boot_sample,
+               control = rpart.control(maxdepth = maxdepth))
+  })
+}
+
+# run from 1-10 depth, observe the rmse of validation set
+rmse_by_depth <- sapply(1:10, function(d) {
+  bagged_models <- bagged_learn(rpart, split_train_data,
+                                 formula = charges ~ age + sex + bmi + children + smoker + region,
+                                 b = 25,
+                                 maxdepth = d)
+  preds <- bagged_predict(bagged_models, split_validate_data)
+  rmse <- rmse_oos(split_validate_data$charges, preds)
+  cat("Training bagged trees with depth =", d, "RMSE:",rmse,"\n")
+  return(rmse)
+})
+
+plot(1:10, rmse_by_depth, type = "b",
+     xlab = "Max Tree Depth",
+     ylab = "Validation RMSE",
+     main = "Bagged Decision Tree: RMSE vs Tree Depth")
+```
+
+```{r}
+set.seed(123)
+best_depth <- which.min(rmse_by_depth)
+
+final_models <- bagged_learn(rpart, split_train_data,
+                                 formula = charges ~ age + sex + bmi + children + smoker + region,
+                                 b = 25,
+                                 maxdepth = best_depth)
+
+final_preds <- bagged_predict(final_models, split_test_data)
+
+final_rmse <- rmse_oos(split_test_data$charges, final_preds)
+
+cat("best depth =", best_depth, "RMSE:",rmse_by_depth[best_depth],"\n")
+cat("Final test RMSE =", round(final_rmse, 2), "\n")
+
+```
+
+We used 15% of the data as a validation set to select the best max tree depth via RMSE. The final model was then evaluated on a held-out test set. As expected, the test RMSE is slightly higher than the validation RMSE due to no tuning being performed on the test set. This confirms that the model generalizes reasonably well without overfitting to the validation data.
+
+### b. Let’s find the best set of max tree depth and learning rate for boosting the decision tree: Use tree stumps of differing maximum depth (e.g., try intervals between 1 – 5) and differing learning rates (e.g., try regular intervals from 0.01 to 0.20). For each combination of maximum depth and learning rate, train on the 70% training set while and use the 15% validation set to compute RMSEout. When you have tried all your combinations, identify the best combination of maximum depth and learning rate from the validation set, but report the final RMSEout using the final 15% test set data.
+
+```{r}
+# create another parameter for boost_learn "max_depth"
+boost_learn <- function(model, dataset, outcome, n = 100, rate = 0.1, maxdepth = 1) {
+  predictors <- dataset[, setdiff(names(dataset), outcome)]  # remove outcome column
+  res <- dataset[[outcome]]  # start with the true y values (residuals = y at first)
+  models <- list()
+
+  for (i in 1:n) {
+    # Fit model on current residuals
+    this_model <- rpart(residual ~ ., data = cbind(residual = res, predictors),
+                        control = rpart.control(maxdepth = maxdepth))  # reuse model structure
+    pred <- predict(this_model, newdata = predictors)
+    res <- res - rate * pred  # update residuals
+    models[[i]] <- this_model
+  }
+
+  list(models = models, rate = rate)
+}
+
+# Grid Search
+depth_range <- 1:5
+rate_range <- seq(0.01, 0.2, by = 0.03)
+
+results <- expand.grid(depth = depth_range, rate = rate_range)
+results$val_rmse <- apply(results, 1, function(row) {
+  d <- as.numeric(row["depth"])
+  r <- as.numeric(row["rate"])
+  
+  boosted <- boost_learn(charges ~ ., dataset = split_train_data,
+                         outcome = "charges", n = 100, rate = r, maxdepth = d)
+  
+  preds <- boost_predict(boosted, split_validate_data)
+  rmse <- rmse_oos(split_validate_data$charges, preds)
+  cat("Training boosted trees → depth:", d, "rate:", r,"RMSE:",rmse, "\n")
+  return(rmse)
+})
+
+```
+```{r}
+results$val_rmse
+```
+
+```{r}
+set.seed(123)
+best_idx <- which.min(results$val_rmse)
+best_depth <- results$depth[best_idx]
+best_rate <- results$rate[best_idx]
+
+cat("Best combo → depth:", best_depth, "rate:", best_rate,"RMSE:",results$val_rmse[best_idx], "\n")
+
+final_boosted <- boost_learn(charges ~ ., dataset = split_train_data,
+                              outcome = "charges", n = 100,
+                              rate = best_rate, maxdepth = best_depth)
+
+final_preds <- boost_predict(final_boosted, split_test_data)
+final_rmse <- rmse_oos(split_test_data$charges, final_preds)
+
+cat("Final Test RMSE =", round(final_rmse, 2), "\n")
+
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(results, aes(x = factor(depth), y = rate, fill = val_rmse)) +
+  geom_tile() +
+  geom_text(aes(label = round(val_rmse, 1)), color = "white") +
+  scale_fill_gradient(low = "steelblue", high = "firebrick") +
+  labs(title = "Validation RMSE for Boosted Trees",
+       x = "Tree Depth", y = "Learning Rate", fill = "RMSE")
+
+```
+
+We used 15% of the data as a validation set to select the best combo of max tree depth and learning rate via RMSE. The final model was then evaluated on a held-out test set. As expected, the test RMSE is slightly higher than the validation RMSE due to no tuning being performed on the test set. This confirms that the model generalizes reasonably well without overfitting to the validation data.

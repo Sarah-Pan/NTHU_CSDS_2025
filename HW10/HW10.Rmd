@@ -1,0 +1,237 @@
+---
+title: "HW10"
+author: '113078506'
+date: "2025-04-24"
+output:
+  pdf_document: 
+    latex_engine: xelatex
+  html_document: default
+---
+
+- Gen AI Usage: I use Gen AI to refine my grammar, verify my reasoning and adjust to cleaner code.
+- Students who helped: 113078505, 113078502, and 113078514, helped with conclusion reasoning.
+
+## Set Up 
+
+```{r}
+raw_cars <- read.table("auto-data.txt", header=FALSE, na.strings = "?")
+names(raw_cars) <- c("mpg", "cylinders", "displacement", "horsepower", "weight", 
+                 "acceleration", "model_year", "origin", "car_name")
+
+cars <- with(raw_cars, data.frame(mpg, weight, acceleration, model_year, origin))
+cars_log <- with(cars, data.frame(log(mpg), log(weight), log(acceleration), model_year, origin))
+```
+
+## Question 1) Let’s visualize how weight and acceleration are related to mpg.
+
+### a. Let’s visualize how weight might moderate the relationship between acceleration and mpg:
+
+#### i. Create two subsets of your data, one for light-weight cars (less than mean weight) and one for heavy cars (higher than the mean weight) HINT: consider how you might compare log weights to mean weight
+
+```{r}
+# Calculate mean of log.weight
+mean_log_weight <- mean(cars_log$log.weight., na.rm = TRUE)
+
+# Subset data
+light_cars <- subset(cars_log, log.weight. < mean_log_weight)
+heavy_cars <- subset(cars_log, log.weight. >= mean_log_weight)
+
+cat("light cars:\n"); print(head(light_cars, 5))
+cat("heavy cars:\n"); print(head(heavy_cars, 5))
+```
+
+#### ii. Create a single scatter plot of acceleration vs. mpg, with different colors and/or shapes for light versus heavy cars
+
+#### iii. Draw two slopes of acceleration-vs-mpg over the scatter plot: one slope for light cars and one slope for heavy cars (distinguish them by appearance)
+
+```{r, fig.align='center', fig.width=7, fig.height=5}
+cars_log$weight_group <- ifelse(cars_log$log.weight. < mean_log_weight, "Light", "Heavy")
+
+colors <- c("Light" = "lightblue", "Heavy" = "lightgreen")
+shapes <- c("Light" = 16, "Heavy" = 15)  
+
+plot(cars_log$log.acceleration., cars_log$log.mpg.,
+     col = colors[cars_log$weight_group],
+     pch = shapes[cars_log$weight_group],
+     xlab = "Log(Acceleration)",
+     ylab = "Log(MPG)",
+     main = "Acceleration vs. MPG by Weight Group")
+
+legend("bottomright", legend = c("Light cars", "Heavy cars"),
+       col = c("lightblue", "lightgreen"), pch = c(16, 15))
+
+model_light <- lm(log.mpg. ~ log.acceleration., data = light_cars)
+abline(model_light, col = colors["Light"], lwd = 2)
+model_heavy <- lm(log.mpg. ~ log.acceleration., data = heavy_cars)
+abline(model_heavy, col = colors["Heavy"], lwd = 2)
+```
+
+### b. Report the full summaries of two separate regressions for light and heavy cars where log.mpg. is dependent on log.weight., log.acceleration., model_year and origin
+
+```{r}
+# Regression for light cars
+model_light_full <- lm(log.mpg. ~ log.weight. + log.acceleration. + model_year + factor(origin), data = light_cars)
+
+# Regression for heavy cars
+model_heavy_full <- lm(log.mpg. ~ log.weight. + log.acceleration. + model_year + factor(origin), data = heavy_cars)
+
+summary(model_light_full)
+summary(model_heavy_full)
+```
+### c. Using your intuition only: What do you observe about light versus heavy cars so far?
+
+- Light cars generally have higher mpg than heavy cars at the same level of acceleration (their points are located higher on the y-axis). The intercept difference between the two groups is obvious, indicating that weight is an important factor that shifts the baseline fuel efficiency downward for heavier vehicles.
+
+## Question 2) Use the transformed dataset from above (cars_log), to test whether we have moderation.
+### a. (not graded) Considering weight and acceleration, use your intuition and experience to state which of the two variables might be a moderating versus independent variable, in affecting mileage.
+
+- Intuitively, weight may act as a moderating variable that influences how strongly acceleration affects fuel efficiency (mpg), while acceleration itself serves as an independent variable directly related to mpg.
+
+### b. Use various regression models to model the possible moderation on log.mpg.:  
+(use log.weight., log.acceleration., model_year and origin as independent variables)
+
+#### i. Report a regression without any interaction terms
+
+```{r}
+summary(lm( log.mpg. ~ log.weight. + log.acceleration. + model_year + factor(origin), data = cars_log))
+```
+
+#### ii. Report a regression with an interaction between weight and acceleration
+
+```{r}
+cars_log$interaction_raw <- cars_log$log.weight. * cars_log$log.acceleration.
+summary(lm(log.mpg. ~ log.weight. + log.acceleration. + interaction_raw + model_year + factor(origin), data = cars_log))
+```
+
+#### iii. Report a regression with a mean-centered interaction term
+
+```{r}
+accel_mc <- scale(cars_log$log.acceleration., center=TRUE, scale=FALSE)
+weight_mc <- scale(cars_log$log.weight., center=TRUE, scale=FALSE)
+cars_log$meancenter <- accel_mc*weight_mc
+
+summary(lm(cars_log$log.acceleration. ~ accel_mc + weight_mc + accel_mc*weight_mc))
+
+```
+
+#### iv. Report a regression with an orthogonalized interaction term
+
+```{r}
+accel_x_weight <- cars_log$log.acceleration. * cars_log$log.weight.
+interaction_regr <- lm(accel_x_weight ~ cars_log$log.acceleration. + cars_log$log.weight.)
+interaction_ortho <- interaction_regr$residuals
+
+summary(lm(log.mpg. ~ log.acceleration. + log.weight. + interaction_ortho, data=cars_log))
+```
+
+### c. For each of the interaction term strategies above (raw, mean-centered, orthogonalized)  
+what is the correlation between that interaction term and the two variables that you multiplied together?
+
+```{r}
+library(knitr)
+# Correlation between raw interaction term and its components
+raw_interact_data <- data.frame(
+  log_weight = cars_log$log.weight.,
+  log_acceleration = cars_log$log.acceleration.,
+  interaction = cars_log$interaction_raw
+)
+
+# Now calculate the correlation matrix
+cor_matrix <- cor(raw_interact_data)
+
+knitr::kable(cor_matrix, caption = "Correlations between raw interaction and IV")
+```
+
+
+```{r}
+# Correlation between mean-centered interaction term and its components
+mc_interact_data <- data.frame(
+  log_weight = cars_log$log.weight.,
+  log_acceleration = cars_log$log.acceleration.,
+  mc_interaction = cars_log$meancenter
+)
+
+# Now calculate the correlation matrix
+cor_matrix_mc <- cor(mc_interact_data)
+
+# Display the correlation matrix
+
+knitr::kable(cor_matrix_mc, caption = "Correlations between mean-centered interaction and IV")
+```
+
+```{r}
+# Correlation between orthogonalized interaction term and its components
+ortho_interact_data <- data.frame(
+  log_weight = cars_log$log.weight.,
+  log_acceleration = cars_log$log.acceleration.,
+  ortho_interaction = interaction_ortho
+)
+
+# Now calculate the correlation matrix
+cor_matrix_ortho <- cor(ortho_interact_data)
+
+# Display the correlation matrix
+
+knitr::kable(cor_matrix_ortho, caption = "Correlations between orthogonalized interaction and IV")
+```
+
+## Question 3) We saw earlier that the number of cylinders does not seem to directly influence mpg when car weight is also considered.  But might cylinders have an indirect relationship with mpg through its weight? 
+
+Let’s check whether weight mediates the relationship between cylinders and mpg, even when other factors are controlled for.  Use log.mpg., log.weight., and log.cylinders as your main variables, and keep log.acceleration., model_year, and origin as control variables (see gray variables in diagram).
+
+### a. Let’s try computing the direct effects first:
+
+### i. Model 1: Regress log.weight. over log.cylinders. only  
+(check whether number of cylinders has a significant direct effect on weight)
+
+```{r}
+cars_log$log.cylinders. <- log(raw_cars$cylinders)
+
+ml_1 <- lm(log.weight.~log.cylinders., data=cars_log)
+summary(ml_1)
+```
+
+### ii. Model 2: Regress log.mpg. over log.weight. and all control variables  
+(check whether weight has a significant direct effect on mpg with other variables statistically controlled)
+
+```{r}
+ml_2 <- lm(log.mpg.~log.weight. + log.acceleration. + model_year + origin, data=cars_log)
+summary(ml_2)
+```
+
+### b. What is the indirect effect of cylinders on mpg? (use the product of slopes between Models 1 & 2)
+
+```{r}
+slope_ml1 <- 0.82012
+slope_ml2 <- -0.889384 
+
+indirect_effect <- slope_ml1 * slope_ml2
+print(indirect_effect)
+```
+
+### c. Let’s bootstrap for the confidence interval of the indirect effect of cylinders on mpg
+#### i. Bootstrap regression models 1 & 2, and compute the indirect effect each time: 
+What is its 95% CI of the indirect effect of log.cylinders. on log.mpg.?
+
+```{r}
+boot_mediation <- function(model1, model2, dataset) {
+boot_index <- sample(1:nrow(dataset), replace=TRUE)
+data_boot <- dataset[boot_index, ]
+regr1 <- lm(model1, data_boot)
+regr2 <- lm(model2, data_boot)
+return(regr1$coefficients[2] * regr2$coefficients[2]) # indirect effect
+}
+
+set.seed(42)
+indirect <- replicate(2000, boot_mediation(ml_1, ml_2, cars_log))
+quantile(indirect, probs=c(0.025, 0.975))
+```
+
+#### ii. Show a density plot of the distribution of the indirect effect, and mark its 95% CI
+
+```{r}
+ci <- quantile(indirect, probs=c(0.025, 0.975))
+plot(density(indirect), main = "Bootstrap Distribution of Indirect Effect", xlab = "Indirect Effect")
+abline(v = ci, col = "blue", lty = "dashed")
+```
+

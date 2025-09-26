@@ -1,0 +1,79 @@
+---
+title: "HW1"
+author: '113078506'
+date: "2025-02-19"
+output:
+  pdf_document: 
+    latex_engine: xelatex
+  html_document: default
+---
+## Q1: What is the 5th element in the original list of ages?
+
+```{r}
+customers <- read.table(file = "customers.txt", header = TRUE)
+customers$age[5]
+```
+
+## Q2: What is the fifth lowest age?
+
+```{r}
+sorted_ages <- sort(customers$age)
+sorted_unique_ages <- unique(sorted_ages)
+sorted_unique_ages[5]
+```
+
+## Q3: Extract the five lowest ages together
+
+```{r}
+sorted_unique_ages[1:5]
+```
+
+## Q4: Get the five highest ages by first sorting them in decreasing order first.
+
+```{r}
+?sort
+desc_ages <- sort(sorted_unique_ages, decreasing = TRUE)
+desc_ages[1:5]
+```
+
+##Q5: What is the average (mean) age?
+
+```{r}
+ages_mean <- mean(sorted_ages)
+ages_mean
+```
+
+##Q6: What is the standard deviation of ages?
+
+```{r}
+sd(sorted_ages)
+```
+
+##Q7: Make a new variable called age_diff, with the difference between each age and the mean age
+
+```{r}
+age_diff <- sorted_ages - ages_mean
+age_diff
+```
+
+## Q8: What is the average “difference between each age and the mean age”?
+
+```{r}
+mean(abs(age_diff))
+```
+
+## Q9: Visualize the raw data as we did in class: (a) histogram, (b) density plot, (c) boxplot+stripchart
+
+```{r}
+hist(customers$age)
+```
+
+```{r}
+plot(density(customers$age))
+```
+
+```{r}
+boxplot(customers$age, horizontal = TRUE)
+stripchart(customers$age, method = "stack", add = TRUE)
+```
+
